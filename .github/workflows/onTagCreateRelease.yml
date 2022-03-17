@@ -75,47 +75,48 @@ jobs:
       - name: Build jar using Maven
         run: mvn --batch-mode install verify -U -X
 
+      - name: print out the directory
+        run: dir
+      - name: print out the directory 2
+        run: dir target
      # copy jar file to main directory
-      # - name: Copy jar file to main directory
-      #   run: |
-      #     cp target/bluewave-1.0.0.jar bluewave-${{ env.releaseLabel }}.jar
-      #     cp -r target/lib lib
+      - name: Copy jar file to main directory
+        run: |
+          mv target/bluewave_tx-1.0.0.jar bluewave_tx-${{ env.releaseLabel }}.jar
+
+    ### Add compiled project files to new directory
+
+     # Copy release assets to compiled project Directory
+      - name: Copy release assets to compiled project Directory
+        run: cp bluewave_tx-${{ env.releaseLabel }}.jar compiledProjectDirectory
+
+     # Zip project
+      - name: Zip configured project directory into downloadable release.zip file
+        run: cd compiledProjectDirectory; zip -r ../bluewave_tx-${{ env.releaseLabel }}.zip *
 
 
-    ### Add all compiled project files to new directory
+     # Create the release to serve as a place to export to
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions
+        with:
+          tag_name: ${{ env.releaseLabel }}
+          release_name: Release ${{ env.releaseLabel }}
+          body: |
+            BlueWave Neo4j Plugin Release ${{ env.releaseLabel }}
+          draft: false
+          prerelease: false
 
-    #  # Copy release assets to compiled project Directory
-    #   - name: Copy release assets to compiled project Directory
-    #     run: cp -r web models lib bluewave-${{ env.releaseLabel }}.jar compiledProjectDirectory
-
-    #   # Zip project
-    #   - name: Zip configured project directory into downloadable release.zip file
-    #     run: cd compiledProjectDirectory; zip -r ../bluewave-${{ env.releaseLabel }}.zip *
-
-
-    #  # Create the release to serve as a place to export to
-    #   - name: Create Release
-    #     id: create_release
-    #     uses: actions/create-release@v1
-    #     env:
-    #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions
-    #     with:
-    #       tag_name: ${{ env.releaseLabel }}
-    #       release_name: Release ${{ env.releaseLabel }}
-    #       body: |
-    #         BlueWave Release ${{ env.releaseLabel }}
-    #       draft: false
-    #       prerelease: false
-
-
-    #  # add packaged project to Github Release page
-    #   - name: Upload packaged project to Github Release page
-    #     id: upload-release-asset-minified
-    #     uses: actions/upload-release-asset@v1
-    #     env:
-    #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    #     with:
-    #       upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
-    #       asset_path: bluewave-${{ env.releaseLabel }}.zip
-    #       asset_name: bluewave-${{ env.releaseLabel }}.zip
-    #       asset_content_type: application/zip
+     # add packaged project to Github Release page
+      - name: Upload packaged project to Github Release page
+        id: upload-release-asset-minified
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+          asset_path: bluewave_tx-${{ env.releaseLabel }}.zip
+          asset_name: bluewave_tx-${{ env.releaseLabel }}.zip
+          asset_content_type: application/zip
