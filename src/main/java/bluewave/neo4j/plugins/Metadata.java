@@ -3,6 +3,8 @@ package bluewave.neo4j.plugins;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 
 import org.neo4j.graphdb.*;
 
@@ -50,6 +52,7 @@ public class Metadata {
 
         nodes = new ConcurrentHashMap<>();
         lastUpdate = new AtomicLong(0L);
+        AtomicBoolean isRunning = new AtomicBoolean(false);
 
 
       //Sync recent updates made to the nodes map every 30 seconds
@@ -58,16 +61,20 @@ public class Metadata {
             java.util.Timer timer = new java.util.Timer();
             timer.scheduleAtFixedRate( new java.util.TimerTask(){
                 public void run(){
+                    if (isRunning.get()==true) return;
+                    isRunning.set(true);
                     synchronized (lastUpdate){
-                        if (lastUpdate.get()==0) return;
-                        try{
-                            if ((System.currentTimeMillis()-lastUpdate.get())>interval){
-                                saveNodes();
-                                lastUpdate.set(0);
+                        if (lastUpdate.get()>0){
+                            try{
+                                if ((System.currentTimeMillis()-lastUpdate.get())>interval){
+                                    saveNodes();
+                                    lastUpdate.set(0);
+                                }
                             }
+                            catch(Exception e){}
                         }
-                        catch(Exception e){}
                     }
+                    isRunning.set(false);
                 }
             }, 30*1000, interval);
         }
@@ -83,6 +90,8 @@ public class Metadata {
             java.util.Timer timer = new java.util.Timer();
             timer.scheduleAtFixedRate( new java.util.TimerTask(){
                 public void run(){
+                    if (isRunning.get()==true) return;
+                    isRunning.set(true);
                     synchronized (lastUpdate){
                         if (lastUpdate.get()==0){
                             try{
@@ -93,6 +102,7 @@ public class Metadata {
                             }
                         }
                     }
+                    isRunning.set(false);
                 }
             }, startDate.getDate(), interval);
         }
@@ -153,172 +163,172 @@ public class Metadata {
         if ((action.equals("create") || action.equals("delete")) && (type.equals("nodes") || type.equals("relationships") || type.equals("properties")))
         synchronized(nodes){
             try{
-                    if (type.equals("nodes")){
-                        for (int i=0; i<data.length(); i++){
-                            JSONArray entry = data.get(i).toJSONArray();
-                            if (entry.isEmpty()) continue;
+                if (type.equals("nodes")){
+                    for (int i=0; i<data.length(); i++){
+                        JSONArray entry = data.get(i).toJSONArray();
+                        if (entry.isEmpty()) continue;
 
 
-                            HashSet<String> labels = new HashSet<>();
-                            for (int j=1; j<entry.length(); j++){
-                                String label = entry.get(j).toString();
-                                if (label!=null) label = label.toLowerCase();
-                                labels.add(label);
-                            }
-                        
-                            if (labels.contains(META_NODE_LABEL) || labels.isEmpty()) continue;
+                        HashSet<String> labels = new HashSet<>();
+                        for (int j=1; j<entry.length(); j++){
+                            String label = entry.get(j).toString();
+                            if (label!=null) label = label.toLowerCase();
+                            labels.add(label);
+                        }
 
-                            NodeMetadata nodeMetadata = null;
-                            String labelKey = null;
-                            for (String label : labels){
-                                nodeMetadata = nodes.get(label);
-                                labelKey = label;
-                                if (nodeMetadata!=null) break;
-                            }
+                        if (labels.contains(META_NODE_LABEL) || labels.isEmpty()) continue;
+
+                        NodeMetadata nodeMetadata = null;
+                        String labelKey = null;
+                        for (String label : labels){
+                            nodeMetadata = nodes.get(label);
+                            labelKey = label;
+                            if (nodeMetadata!=null) break;
+                        }
 
 
-                            if (nodeMetadata==null){
-                                nodeMetadata = new NodeMetadata();
+                        if (nodeMetadata==null){
+                            nodeMetadata = new NodeMetadata();
+                            nodeMetadata.count.incrementAndGet();
+                            nodes.put(labels.iterator().next(), nodeMetadata);
+                        }
+                        else{
+                            if (action.equals("create")){
                                 nodeMetadata.count.incrementAndGet();
                                 nodes.put(labels.iterator().next(), nodeMetadata);
                             }
                             else{
-                                if (action.equals("create")){
-                                    nodeMetadata.count.incrementAndGet();
+                                Long n = nodeMetadata.count.decrementAndGet();
+                                if (n==0){
+                                    //TODO: Remove node
+                                    if(labelKey != null) nodes.remove(labelKey);
+                                } else {
                                     nodes.put(labels.iterator().next(), nodeMetadata);
                                 }
-                                else{
-                                    Long n = nodeMetadata.count.decrementAndGet();
-                                    if (n==0){
-                                        //TODO: Remove node
-                                        if(labelKey != null) nodes.remove(labelKey);
-                                    } else {
-                                        nodes.put(labels.iterator().next(), nodeMetadata);
-                                    }
-                                }
                             }
-
-
-                            lastUpdate.set(System.currentTimeMillis());
                         }
+
+
+                        lastUpdate.set(System.currentTimeMillis());
                     }
-                    else if (type.equals("relationships")){
-                        //AtomicLong relations = (AtomicLong) node.get("relations").toObject();
+                }
+                else if (type.equals("relationships")){
+                    //AtomicLong relations = (AtomicLong) node.get("relations").toObject();
 
-                        for (int i=0; i<data.length(); i++){
-                            JSONObject entry = data.get(i).toJSONObject();
-                            if (entry.isEmpty()) continue;
+                    for (int i=0; i<data.length(); i++){
+                        JSONObject entry = data.get(i).toJSONObject();
+                        if (entry.isEmpty()) continue;
 
-                            JSONArray startNodeLabelsArray = entry.get("startNodeLabels").toJSONArray();
-                            HashSet<String> startNodelabels = new HashSet<>();
-                            for (int j=0; j<startNodeLabelsArray.length();j++) {
-                                String label = startNodeLabelsArray.get(j).toString();
-                                if (label!=null) label = label.toLowerCase();
-                                startNodelabels.add(label);
-                            }
-                            NodeMetadata startNodeMetadata = null;
-                            for (String label : startNodelabels){
-                                startNodeMetadata = nodes.get(label);
-                                if (startNodeMetadata!=null) break;
-                            }
-
-                            JSONArray endNodeLabelsArray = entry.get("endNodeLabels").toJSONArray();
-                            HashSet<String> endNodeLabels = new HashSet<>();
-                            for (int j=0; j<endNodeLabelsArray.length();j++) {
-                                String label = endNodeLabelsArray.get(j).toString();
-                                if (label!=null) label = label.toLowerCase();
-                                endNodeLabels.add(label);
-                            }
-
-                            NodeMetadata endNodeMetadata = null;
-                            for (String label : endNodeLabels){
-                                endNodeMetadata = nodes.get(label);
-                                if (endNodeMetadata!=null) break;
-                            }
-                            
-                            if (!startNodelabels.contains(META_NODE_LABEL) && !startNodelabels.isEmpty()){
-                                if (startNodeMetadata==null){
-                                    startNodeMetadata = new NodeMetadata();
-                                    startNodeMetadata.relations.incrementAndGet();
-                                    nodes.put(startNodelabels.iterator().next(), startNodeMetadata);
-                                }
-                                else{
-                                    if (action.equals("create")){
-                                        startNodeMetadata.relations.incrementAndGet();
-                                    }
-                                    else{
-                                        startNodeMetadata.relations.decrementAndGet();
-                                    }
-                                }
-                            }
-
-                            if (!endNodeLabels.contains(META_NODE_LABEL) && !endNodeLabels.isEmpty()){
-                                if (endNodeMetadata==null){
-                                    endNodeMetadata = new NodeMetadata();
-                                    endNodeMetadata.relations.incrementAndGet();
-                                    nodes.put(endNodeLabels.iterator().next(), endNodeMetadata);
-                                }
-                                else{
-                                    if (action.equals("create")){
-                                        endNodeMetadata.relations.incrementAndGet();
-                                    }
-                                    else{
-                                        endNodeMetadata.relations.decrementAndGet();
-                                    }
-                                }
-                            }
-                            lastUpdate.set(System.currentTimeMillis());
+                        JSONArray startNodeLabelsArray = entry.get("startNodeLabels").toJSONArray();
+                        HashSet<String> startNodelabels = new HashSet<>();
+                        for (int j=0; j<startNodeLabelsArray.length();j++) {
+                            String label = startNodeLabelsArray.get(j).toString();
+                            if (label!=null) label = label.toLowerCase();
+                            startNodelabels.add(label);
                         }
-                    } 
-                    else if(type.equals("properties")) {
-                        for (int i=0; i<data.length(); i++){
-                            JSONObject entry = data.get(i).toJSONObject();
-                            if (entry.isEmpty()) continue;
+                        NodeMetadata startNodeMetadata = null;
+                        for (String label : startNodelabels){
+                            startNodeMetadata = nodes.get(label);
+                            if (startNodeMetadata!=null) break;
+                        }
 
+                        JSONArray endNodeLabelsArray = entry.get("endNodeLabels").toJSONArray();
+                        HashSet<String> endNodeLabels = new HashSet<>();
+                        for (int j=0; j<endNodeLabelsArray.length();j++) {
+                            String label = endNodeLabelsArray.get(j).toString();
+                            if (label!=null) label = label.toLowerCase();
+                            endNodeLabels.add(label);
+                        }
 
-                            HashSet<String> labels = new HashSet<>();
-                            JSONArray jsonLabels = entry.get("labels").toJSONArray();
-                            for (int j=0; j<jsonLabels.length();j++) {
-                                String label = jsonLabels.get(j).toString();
-                                if (label!=null) label = label.toLowerCase();
-                                labels.add(label);
-                            }
+                        NodeMetadata endNodeMetadata = null;
+                        for (String label : endNodeLabels){
+                            endNodeMetadata = nodes.get(label);
+                            if (endNodeMetadata!=null) break;
+                        }
 
-                            if (labels.contains(META_NODE_LABEL) || labels.isEmpty()) continue;
-
-                            NodeMetadata nodeMetadata = null;
-                            for (String label : labels){
-                                nodeMetadata = nodes.get(label);
-                                if (nodeMetadata!=null) break;
-                            }
-
-
-                            if (nodeMetadata==null){
-                                nodeMetadata = new NodeMetadata();
-                                nodeMetadata.properties.put(entry.get("property").toString(), new PropertyMetadata());
-                                nodes.put(labels.iterator().next(), nodeMetadata);
+                        if (!startNodelabels.contains(META_NODE_LABEL) && !startNodelabels.isEmpty()){
+                            if (startNodeMetadata==null){
+                                startNodeMetadata = new NodeMetadata();
+                                startNodeMetadata.relations.incrementAndGet();
+                                nodes.put(startNodelabels.iterator().next(), startNodeMetadata);
                             }
                             else{
                                 if (action.equals("create")){
-                                    nodeMetadata.properties.put(entry.get("property").toString(), new PropertyMetadata());
+                                    startNodeMetadata.relations.incrementAndGet();
                                 }
                                 else{
-                                    // Not deleting properties at this time
-                                    //nodeMetadata.properties.remove(entry.get("property").toString());
+                                    startNodeMetadata.relations.decrementAndGet();
                                 }
                             }
-
-
-                            lastUpdate.set(System.currentTimeMillis());
                         }
-                    }
 
+                        if (!endNodeLabels.contains(META_NODE_LABEL) && !endNodeLabels.isEmpty()){
+                            if (endNodeMetadata==null){
+                                endNodeMetadata = new NodeMetadata();
+                                endNodeMetadata.relations.incrementAndGet();
+                                nodes.put(endNodeLabels.iterator().next(), endNodeMetadata);
+                            }
+                            else{
+                                if (action.equals("create")){
+                                    endNodeMetadata.relations.incrementAndGet();
+                                }
+                                else{
+                                    endNodeMetadata.relations.decrementAndGet();
+                                }
+                            }
+                        }
+                        lastUpdate.set(System.currentTimeMillis());
+                    }
                 }
-                catch(Exception e){
-                    e.printStackTrace();
+                else if(type.equals("properties")) {
+                    for (int i=0; i<data.length(); i++){
+                        JSONObject entry = data.get(i).toJSONObject();
+                        if (entry.isEmpty()) continue;
+
+
+                        HashSet<String> labels = new HashSet<>();
+                        JSONArray jsonLabels = entry.get("labels").toJSONArray();
+                        for (int j=0; j<jsonLabels.length();j++) {
+                            String label = jsonLabels.get(j).toString();
+                            if (label!=null) label = label.toLowerCase();
+                            labels.add(label);
+                        }
+
+                        if (labels.contains(META_NODE_LABEL) || labels.isEmpty()) continue;
+
+                        NodeMetadata nodeMetadata = null;
+                        for (String label : labels){
+                            nodeMetadata = nodes.get(label);
+                            if (nodeMetadata!=null) break;
+                        }
+
+
+                        if (nodeMetadata==null){
+                            nodeMetadata = new NodeMetadata();
+                            nodeMetadata.properties.put(entry.get("property").toString(), new PropertyMetadata());
+                            nodes.put(labels.iterator().next(), nodeMetadata);
+                        }
+                        else{
+                            if (action.equals("create")){
+                                nodeMetadata.properties.put(entry.get("property").toString(), new PropertyMetadata());
+                            }
+                            else{
+                                // Not deleting properties at this time
+                                //nodeMetadata.properties.remove(entry.get("property").toString());
+                            }
+                        }
+
+
+                        lastUpdate.set(System.currentTimeMillis());
+                    }
                 }
-            
-            
+
+            }
+            catch(Exception e){
+                e.printStackTrace();
+            }
+
+
             nodes.notifyAll();
 
         }
@@ -518,7 +528,7 @@ public class Metadata {
             Object[] props = entries.get(k);
             List<String>propsList = new ArrayList();
             for(Object obj : props)
-                propsList.add(obj.toString());            
+                propsList.add(obj.toString());
             console.log(k + ": " + propsList.toString());
         });
         console.log("Map contents.");
