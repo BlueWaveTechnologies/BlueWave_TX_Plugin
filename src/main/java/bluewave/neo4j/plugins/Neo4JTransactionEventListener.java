@@ -12,8 +12,11 @@ import org.neo4j.graphdb.event.TransactionEventListener;
 import org.neo4j.logging.internal.LogService;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
 import javaxt.json.*;
 import static javaxt.utils.Console.console;
+
 
 public class Neo4JTransactionEventListener implements TransactionEventListener<Object> {
 
@@ -22,9 +25,10 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
 
     // Lookup table for deleted nodes. Currently when a deleted node comes through,
     // there is no way to get its labels.
-    // However, the deleted labels event comes through after the deleted node event, so 
+    // However, the deleted labels event comes through after the deleted node event, so
     // we can do a lookup by node id and grab the deleted nodes' labels.
-    private JSONObject deletedNodes = new JSONObject();
+    private ConcurrentHashMap<Long, Long> deletedNodes;
+
 
   //**************************************************************************
   //** Constructor
@@ -33,6 +37,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
         final LogService logsvc, Logger logger, Metadata metadata) {
         this.logger = logger;
         this.metadata = metadata;
+        this.deletedNodes = new ConcurrentHashMap<>();
     }
 
 
@@ -100,8 +105,8 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
         Iterable<PropertyEntry<Node>> removedNodeProperties = data.removedNodeProperties();
         if (removedNodeProperties != null) {
             Iterator<PropertyEntry<Node>> it = removedNodeProperties.iterator();
-            if (it.hasNext())
-                log("delete", "properties", getPropertyInfo(it, databaseService, transaction, "delete"), user);
+//            if (it.hasNext())
+//                log("delete", "properties", getPropertyInfo(it, databaseService, transaction, "delete"), user);
         }
 
         Iterable<PropertyEntry<Relationship>> assignedRelationshipProperties = data.assignedRelationshipProperties();
@@ -155,7 +160,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
   //**************************************************************************
     private JSONArray getNodeInfo(Iterator<Node> it, String action) {
         JSONArray arr = new JSONArray();
-        
+
         try {
             while (it.hasNext()) {
                 JSONArray entry = new JSONArray();
@@ -165,13 +170,18 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
                 Iterable<Label> labels = null;
                 try {
                     labels = node.getLabels();
-                }catch(Exception e) {
+                }
+                catch(Exception e) {
+
                     console.log("Could not get labels: "+e.getMessage());
-                    if(action.equals("delete") ){
-                        deletedNodes.set(nodeID+"", nodeID);
+                    if (action.equals("delete")){
+                        synchronized (deletedNodes){
+                            deletedNodes.put(nodeID, nodeID);
+                            deletedNodes.notify();
+                        }
                     }
                     return arr;
-                }   
+                }
                 if (labels != null) {
                     Iterator<Label> i2 = labels.iterator();
                     while (i2.hasNext()) {
@@ -191,6 +201,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
         return arr;
     }
 
+    
   //**************************************************************************
   //** getRelationshipInfo
   //**************************************************************************
@@ -219,6 +230,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
         return arr;
     }
 
+
   //**************************************************************************
   //** getLabelInfo
   //**************************************************************************
@@ -227,41 +239,45 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
         return arr;
     }
 
+
   //**************************************************************************
-  //** getLabelInfo / Delete
+  //** getDeletedLabelInfo
   //**************************************************************************
-  private JSONArray getDeletedLabelInfo(Iterator<LabelEntry> it, String username) {
-    JSONArray arr = new JSONArray();
-    Long nodeId = null;
-    while(it.hasNext()) {
-        JSONArray entry = new JSONArray();
-        LabelEntry labelEntry = it.next();
-        nodeId=labelEntry.node().getId();
-        entry.add(nodeId);
-        String label = labelEntry.label().name();
-        entry.add(label);
-        if(deletedNodes.has(nodeId+"")) {
-            JSONArray nodeArray = new JSONArray();
-            deletedNodes.remove(nodeId+"");
-            nodeArray.add(entry);
-            log("delete", "nodes", nodeArray, username);
+    private JSONArray getDeletedLabelInfo(Iterator<LabelEntry> it, String username) {
+        JSONArray arr = new JSONArray();
+        while(it.hasNext()) {
+            JSONArray entry = new JSONArray();
+            LabelEntry labelEntry = it.next();
+            Long nodeId = labelEntry.node().getId();
+            entry.add(nodeId);
+            String label = labelEntry.label().name();
+            entry.add(label);
+            synchronized (deletedNodes){
+                if (deletedNodes.containsKey(nodeId)) {
+                    JSONArray nodeArray = new JSONArray();
+                    deletedNodes.remove(nodeId);
+                    deletedNodes.notify();
+                    nodeArray.add(entry);
+                    log("delete", "nodes", nodeArray, username);
+                }
+            }
         }
+        return arr;
     }
-    return arr;
-}
+
 
   //**************************************************************************
   //** getPropertyInfo
   //**************************************************************************
     private JSONArray getPropertyInfo(Iterator<PropertyEntry<Node>> it, GraphDatabaseService db, final Transaction transaction, String action) {
         JSONArray arr = new JSONArray();
-        
+
         try {
-            
+
             JSONObject jsonObject = new JSONObject();
             while (it.hasNext()) {
                 jsonObject = new JSONObject();
-                
+
                 PropertyEntry<Node> node = it.next();
                 Long nodeId = node.entity().getId();
                 jsonObject.set("nodeId", nodeId);
@@ -280,6 +296,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
         }
         return arr;
     }
+
 
   //**************************************************************************
   //** getRelationshipPropertyInfo
