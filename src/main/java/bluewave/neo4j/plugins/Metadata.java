@@ -371,6 +371,7 @@ public class Metadata {
 
 
           //Update nodeMetadata.properties with attributes stored in the bluewave_metadata node
+            HashSet<String> metadataNodes = new HashSet<>();
             String metadata = null;
             rs = tx.execute("match (n:" + META_NODE_LABEL + ") return n.nodes");
             if (rs.hasNext()) metadata = rs.next().get("n.nodes").toString();
@@ -379,6 +380,7 @@ public class Metadata {
                 Iterator<String> it = json.keySet().iterator();
                 while (it.hasNext()){
                     String nodeName = it.next();
+                    metadataNodes.add(nodeName);
                     JSONObject nodeMetadata = json.get(nodeName).toJSONObject();
                     JSONObject properties = nodeMetadata.get("properties").toJSONObject();
                     Iterator<String> i2 = properties.keySet().iterator();
@@ -386,11 +388,15 @@ public class Metadata {
                         String propertyName = i2.next();
                         JSONObject propertyMetadata = properties.get(propertyName).toJSONObject();
                         String type = propertyMetadata.get("type").toString();
-                        PropertyMetadata pm = nodes.get(nodeName).properties.get(propertyName);
-                        if (type!=null) pm.type = type;
+                        NodeMetadata nm = nodes.get(nodeName);
+                        if (nm!=null){
+                            PropertyMetadata pm = nm.properties.get(propertyName);
+                            if (type!=null) pm.type = type;
+                        }
                     }
                 }
             }
+
 
 
           //Update counts
@@ -398,17 +404,39 @@ public class Metadata {
             while (rs.hasNext()){
                 Map<String, Object> r = rs.next();
                 JSONArray labels = new JSONArray(r.get("labels").toString());
-                String nodeName = labels.isEmpty()? "" : labels.get(0).toString();
+                String nodeName = labels.isEmpty() ? "" : labels.get(0).toString();
+                nodeName = nodeName.toLowerCase();
                 if (nodeName.equals(META_NODE_LABEL)) continue;
 
                 Long count = Long.parseLong(r.get("count").toString());
                 Long relations = Long.parseLong(r.get("relations").toString());
 
-                NodeMetadata nodeMetadata = nodes.get(nodeName.toLowerCase());
+
+                NodeMetadata nodeMetadata = nodes.get(nodeName);
                 if (nodeMetadata!=null){
                     nodeMetadata.count.set(count);
                     nodeMetadata.relations.set(relations);
                 }
+
+
+              //Update metadataNodes by removing the current node. Any remaining
+              //entries in the metadataNodes do not exist and the orphaned
+              //metadataNodes must be removed
+                metadataNodes.remove(nodeName);
+            }
+
+
+
+          //Remove orphaned metadataNodes
+            if (!metadataNodes.isEmpty()){
+                JSONObject json = new JSONObject(metadata);
+                Iterator<String> it = metadataNodes.iterator();
+                while (it.hasNext()){
+                    String nodeName = it.next();
+                    json.remove(nodeName);
+                }
+                saveNodes(json);
+                //console.log("Removed " + metadataNodes.size() + " nodes");
             }
         }
         catch (Exception e) {
@@ -446,7 +474,10 @@ public class Metadata {
             }
         }
         //System.out.println(json.toString(4));
+        saveNodes(json);
+    }
 
+    private void saveNodes(JSONObject json) throws Exception {
 
         Label label = Label.label(META_NODE_LABEL);
         try (Transaction tx = db.beginTx()) {
@@ -513,7 +544,7 @@ public class Metadata {
         }
     }
 
-    public void printMaps() {
+    private void printMaps() {
         if(nodes == null) return;
 
         // Print Properties
