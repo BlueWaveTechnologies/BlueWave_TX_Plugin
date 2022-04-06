@@ -82,7 +82,7 @@ jobs:
      # copy jar file to main directory
       - name: Copy jar file to main directory
         run: |
-          mv target/bluewave_tx-1.0.0.jar bluewave_tx-${{ env.releaseLabel }}.jar
+          mv target/bluewave_tx-dev.jar bluewave_tx-${{ env.releaseLabel }}.jar
 
     ### Add compiled project files to new directory
 
