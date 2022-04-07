@@ -148,6 +148,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
 //        }
     }
 
+
   //**************************************************************************
   //** afterRollback
   //**************************************************************************
@@ -173,7 +174,7 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
                 }
                 catch(Exception e) {
 
-                    console.log("Could not get labels: "+e.getMessage());
+                    //console.log("Could not get labels: "+e.getMessage());
                     if (action.equals("delete")){
                         synchronized (deletedNodes){
                             deletedNodes.put(nodeID, nodeID);
@@ -182,6 +183,8 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
                     }
                     return arr;
                 }
+
+                
                 if (labels != null) {
                     Iterator<Label> i2 = labels.iterator();
                     while (i2.hasNext()) {
@@ -194,14 +197,15 @@ public class Neo4JTransactionEventListener implements TransactionEventListener<O
 
                 arr.add(entry);
             }
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             console.log(e.getMessage());
         }
 
         return arr;
     }
 
-    
+
   //**************************************************************************
   //** getRelationshipInfo
   //**************************************************************************
